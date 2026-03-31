@@ -10,7 +10,7 @@ services:
       # Set to true if you have a connection string set in .env:
       - APPLICATIONINSIGHTS_ENABLED=false
       # Enables External ID login/logout flow locally. Set additional configs in .env:
-      - PETSTORE_SECURITY_ENABLED=false
+      - PETSTORE_SECURITY_ENABLED=true
 
   petstorepetservice:
     build:
