@@ -8,7 +8,7 @@ services:
       - .env
     environment:
       # Set to true if you have a connection string set in .env:
-      - APPLICATIONINSIGHTS_ENABLED=false
+      - APPLICATIONINSIGHTS_ENABLED=true
       # Enables External ID login/logout flow locally. Set additional configs in .env:
       - PETSTORE_SECURITY_ENABLED=false
 
