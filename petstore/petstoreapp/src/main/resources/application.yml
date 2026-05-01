@@ -6,6 +6,8 @@ petstore:
       url: ${PETSTOREPRODUCTSERVICE_URL:http://localhost:8082}
     order:
       url: ${PETSTOREORDERSERVICE_URL:http://localhost:8083}
+    orderitems:
+      url: ${PETSTOREORDERITEMS_URL}
   security:
     # Enable in Module 10
     enabled: ${PETSTORE_SECURITY_ENABLED:false}
