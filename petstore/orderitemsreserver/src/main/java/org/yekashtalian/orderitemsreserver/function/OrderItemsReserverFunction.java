@@ -9,7 +9,6 @@ import com.microsoft.azure.functions.HttpResponseMessage;
 import com.microsoft.azure.functions.annotation.AuthorizationLevel;
 import com.microsoft.azure.functions.annotation.FunctionName;
 import com.microsoft.azure.functions.annotation.HttpTrigger;
-import org.yekashtalian.orderitemsreserver.config.SpringContextInitializer;
 import org.yekashtalian.orderitemsreserver.model.OrderRequest;
 import org.yekashtalian.orderitemsreserver.service.BlobStorageService;
 
@@ -24,11 +23,6 @@ public class OrderItemsReserverFunction {
     private final BlobStorageService blobStorageService;
     private final ObjectMapper mapper;
 
-    public OrderItemsReserverFunction() {
-        var context = SpringContextInitializer.getContext();
-        this.blobStorageService = context.getBean(BlobStorageService.class);
-        this.mapper = context.getBean(ObjectMapper.class);
-    }
 
     @FunctionName("upload-order-data")
     public HttpResponseMessage run(@HttpTrigger(
