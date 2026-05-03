@@ -6,6 +6,7 @@ import com.chtrembl.petstoreapp.exception.OrderServiceException;
 import com.chtrembl.petstoreapp.model.Order;
 import com.chtrembl.petstoreapp.model.Product;
 import com.chtrembl.petstoreapp.model.User;
+import com.chtrembl.petstoreapp.model.dto.OrderItemsRequest;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -44,17 +45,17 @@ public class OrderManagementService {
                         "PetStoreApp user %s is trying to update an order",
                         this.sessionUser.getName()), this.sessionUser.getCustomEventProperties(), null);
 
-        try {
-            Order updatedOrder = buildOrderUpdate(productId, quantity, completeOrder);
-            String orderJSON = serializeOrder(updatedOrder);
+      try {
+        Order updatedOrder = buildOrderUpdate(productId, quantity, completeOrder);
+        String orderJSON = serializeOrder(updatedOrder);
 
-            Order resultOrder = orderServiceClient.createOrUpdateOrder(orderJSON);
+        Order resultOrder = orderServiceClient.createOrUpdateOrder(orderJSON);
 
-			uploadOrderItemIntoBlobStorage(resultOrder);
+        uploadOrderItemIntoBlobStorage(resultOrder);
 
-			log.info("Successfully updated order: {}", resultOrder);
+        log.info("Successfully updated order: {}", resultOrder);
 
-        } catch (FeignException fe) {
+      } catch (FeignException fe) {
             log.error("Unable to update order via Feign client: HTTP {} - {}", fe.status(), fe.getMessage(), fe);
             this.sessionUser.getTelemetryClient().trackException(fe);
             throw new OrderServiceException("Unable to update order via order service", fe);
@@ -69,7 +70,18 @@ public class OrderManagementService {
 
 	private void uploadOrderItemIntoBlobStorage(Order resultOrder) {
 		try {
-			orderItemsReserverClient.uploadOrderItem(resultOrder, sessionUser.getSessionId());
+			OrderItemsRequest orderItemsRequest = new OrderItemsRequest();
+			orderItemsRequest.setSessionId(sessionUser.getSessionId());
+			orderItemsRequest.setOrderId(resultOrder.getId());
+			orderItemsRequest.setEmail(resultOrder.getEmail());
+			orderItemsRequest.setProducts(resultOrder.getProducts());
+			orderItemsRequest.setStatus(resultOrder.getStatus().toString());
+			orderItemsRequest.setComplete(resultOrder.isComplete());
+			
+			// Send to Azure Function
+			orderItemsReserverClient.uploadOrderItem(orderItemsRequest);
+			
+			log.info("Successfully uploaded order items to blob storage for session: {}", sessionUser.getSessionId());
 		} catch (Exception e) {
 			log.warn("Failed to reserve order items, continuing: {}", e.getMessage());
 		}
