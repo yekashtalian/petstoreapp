@@ -1,10 +1,14 @@
 package com.chtrembl.orderitemsreserver;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.List;
 
 /**
  * Request DTO for order items reservation
  */
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class OrderRequest {
     private String sessionId;
     private String orderId;
@@ -64,6 +68,7 @@ public class OrderRequest {
         this.complete = complete;
     }
 
+	@JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Product {
         private Long id;
         private String category;

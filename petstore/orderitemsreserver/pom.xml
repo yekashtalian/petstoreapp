@@ -83,13 +83,14 @@
                     <!-- function app resource group -->
                     <resourceGroup>yevhenii-petapp-rg</resourceGroup>
                     <!-- function app service plan name -->
-                    <appServicePlanName>yevhenii-functions-plan</appServicePlanName>
+                    <appServicePlanName>yevhenii-functions-plan-premium</appServicePlanName>
                     <!-- function app region-->
                     <region>eastus</region>
                     <runtime>
                         <!-- runtime os, could be windows, linux or docker-->
-                        <os>linux</os>
+                        <os>docker</os>
                         <javaVersion>21</javaVersion>
+                        <image>yevheniicontainerregistry.azurecr.io/orderitemsreserver:latest</image>
                     </runtime>
                     <appSettings>
                         <property>

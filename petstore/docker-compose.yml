@@ -35,3 +35,13 @@ services:
       - "8083:8083"
     env_file:
       - .env
+
+  orderitemsreserver:
+    build:
+      context: ./orderitemsreserver
+    ports:
+      - "7071:80"
+    env_file:
+      - .env
+    environment:
+      - AZURE_STORAGE_CONTAINER_NAME=order-items
