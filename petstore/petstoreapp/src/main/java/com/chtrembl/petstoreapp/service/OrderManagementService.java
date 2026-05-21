@@ -64,7 +64,8 @@ public class OrderManagementService {
 
     public Order retrieveOrder(String orderId) {
         MDC.put(OPERATION, "retrieveOrder");
-        MDC.put(ORDER_ID, orderId);
+        String normalizedId = normalizeSessionId(orderId);
+        MDC.put(ORDER_ID, normalizedId);
 
         this.sessionUser.getTelemetryClient()
                 .trackEvent(String.format(
@@ -72,14 +73,14 @@ public class OrderManagementService {
                         this.sessionUser.getName()), this.sessionUser.getCustomEventProperties(), null);
 
         try {
-            Order order = orderServiceClient.getOrder(orderId);
+            Order order = orderServiceClient.getOrder(normalizedId);
             log.info("Successfully retrieved order: {}", order);
             return order;
 
         } catch (FeignException.NotFound e) {
-            log.debug("Order not found: {}, returning empty order", orderId);
+            log.debug("Order not found: {}, returning empty order", normalizedId);
             Order newOrder = new Order();
-            newOrder.setId(orderId);
+            newOrder.setId(normalizedId);
             newOrder.setComplete(false);
             newOrder.setProducts(new ArrayList<>());
             return newOrder;
@@ -99,7 +100,7 @@ public class OrderManagementService {
 
     private Order buildOrderUpdate(long productId, int quantity, boolean completeOrder) {
         Order updatedOrder = new Order();
-        updatedOrder.setId(this.sessionUser.getSessionId());
+        updatedOrder.setId(normalizeSessionId(this.sessionUser.getSessionId()));
 
         String userEmail = this.sessionUser.getEmail();
         if (userEmail != null && !userEmail.trim().isEmpty()) {
@@ -138,5 +139,16 @@ public class OrderManagementService {
         MDC.remove(PRODUCT_ID);
         MDC.remove(QUANTITY);
         MDC.remove(COMPLETE_ORDER);
+    }
+
+    /**
+     * Normalizes a session ID to a 32-character uppercase hex string required by the order service.
+     * Spring session IDs are UUID strings (36 chars with hyphens); stripping hyphens yields the expected format.
+     */
+    private String normalizeSessionId(String sessionId) {
+        if (sessionId == null) {
+            return null;
+        }
+        return sessionId.replace("-", "").toUpperCase();
     }
 }

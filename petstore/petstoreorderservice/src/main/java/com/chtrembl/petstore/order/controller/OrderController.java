@@ -62,7 +62,7 @@ public class OrderController {
         // Enrich order with product details from product service
         List<Product> availableProducts = productService.getAvailableProducts();
         orderService.enrichOrderWithProductDetails(updatedOrder, availableProducts);
-        
+
         log.info("Successfully processed order: {}", updatedOrder.getId());
 
         return ResponseEntity.ok(updatedOrder);

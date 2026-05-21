@@ -1,10 +1,14 @@
 package com.chtrembl.petstore.pet.service;
 
-import com.chtrembl.petstore.pet.model.DataPreload;
+import com.chtrembl.petstore.pet.entity.PetEntity;
+import com.chtrembl.petstore.pet.model.Category;
 import com.chtrembl.petstore.pet.model.Pet;
+import com.chtrembl.petstore.pet.model.Tag;
+import com.chtrembl.petstore.pet.repository.PetRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -12,32 +16,51 @@ import java.util.Optional;
 @Service
 @Slf4j
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class PetService {
 
-    private final DataPreload dataPreload;
+    private final PetRepository petRepository;
 
     public List<Pet> findPetsByStatus(List<String> status) {
         log.info("Finding pets with status: {}", status);
-
-        return dataPreload.getPets().stream()
-                .filter(pet -> status.contains(pet.getStatus().getValue()))
+        return petRepository.findByStatusIn(status).stream()
+                .map(this::mapToDto)
                 .toList();
     }
 
     public Optional<Pet> findPetById(Long petId) {
         log.info("Finding pet with id: {}", petId);
-
-        return dataPreload.getPets().stream()
-                .filter(pet -> pet.getId().equals(petId))
-                .findFirst();
+        return petRepository.findById(petId).map(this::mapToDto);
     }
 
     public List<Pet> getAllPets() {
         log.info("Getting all pets");
-        return dataPreload.getPets();
+        return petRepository.findAll().stream()
+                .map(this::mapToDto)
+                .toList();
     }
 
     public int getPetCount() {
-        return dataPreload.getPets().size();
+        return (int) petRepository.count();
+    }
+
+    private Pet mapToDto(PetEntity entity) {
+        List<Tag> tags = entity.getTags().stream()
+                .map(t -> Tag.builder().id(t.getId()).name(t.getName()).build())
+                .toList();
+
+        Category category = Category.builder()
+                .id(entity.getCategory().getId())
+                .name(entity.getCategory().getName())
+                .build();
+
+        return Pet.builder()
+                .id(entity.getId())
+                .name(entity.getName())
+                .category(category)
+                .photoURL(entity.getPhotoURL())
+                .status(Pet.Status.fromValue(entity.getStatus()))
+                .tags(tags)
+                .build();
     }
 }

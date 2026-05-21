@@ -1,7 +1,6 @@
 package com.chtrembl.petstore.order.controller;
 
 import com.chtrembl.petstore.order.model.ContainerEnvironment;
-import com.chtrembl.petstore.order.service.CacheService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -23,7 +22,6 @@ import java.util.Map;
 public class InfoController {
 
     private final ContainerEnvironment containerEnvironment;
-    private final CacheService cacheService;
 
     @Operation(
             summary = "Health check",
@@ -57,8 +55,7 @@ public class InfoController {
         Map<String, String> response = Map.of(
                 "service", "order service",
                 "version", containerEnvironment.getAppVersion(),
-                "container", containerEnvironment.getContainerHostName(),
-                "ordersCacheSize", String.valueOf(cacheService.getOrdersCacheSize())
+                "container", containerEnvironment.getContainerHostName()
         );
 
         return ResponseEntity.ok(response);

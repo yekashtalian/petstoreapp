@@ -1,4 +1,84 @@
 services:
+  postgres-pet:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: petstorepetservice_db
+      POSTGRES_USER: ${POSTGRES_PET_USER:-petuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PET_PASSWORD:-petpass}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker-compose-init/petservice-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres-pet-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_PET_USER:-petuser} -d petstorepetservice_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-product:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: petstoreproductservice_db
+      POSTGRES_USER: ${POSTGRES_PRODUCT_USER:-productuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PRODUCT_PASSWORD:-productpass}
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./docker-compose-init/productservice-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres-product-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_PRODUCT_USER:-productuser} -d petstoreproductservice_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  petstorepetservice:
+    build:
+      context: ./petstorepetservice
+    ports:
+      - "8081:8081"
+    env_file:
+      - .env
+    environment:
+      - PETSTOREPETSERVICE_SERVER_PORT=8081
+      - PETSTOREPETSERVICE_DB_URL=jdbc:postgresql://postgres-pet:5432/petstorepetservice_db
+      - PETSTOREPETSERVICE_DB_USER=${POSTGRES_PET_USER:-petuser}
+      - PETSTOREPETSERVICE_DB_PASSWORD=${POSTGRES_PET_PASSWORD:-petpass}
+    depends_on:
+      postgres-pet:
+        condition: service_healthy
+
+  petstoreproductservice:
+    build:
+      context: ./petstoreproductservice
+    ports:
+      - "8082:8082"
+    env_file:
+      - .env
+    environment:
+      - PETSTOREPRODUCTSERVICE_SERVER_PORT=8082
+      - PETSTOREPRODUCTSERVICE_DB_URL=jdbc:postgresql://postgres-product:5432/petstoreproductservice_db
+      - PETSTOREPRODUCTSERVICE_DB_USER=${POSTGRES_PRODUCT_USER:-productuser}
+      - PETSTOREPRODUCTSERVICE_DB_PASSWORD=${POSTGRES_PRODUCT_PASSWORD:-productpass}
+    depends_on:
+      postgres-product:
+        condition: service_healthy
+
+  petstoreorderservice:
+    build:
+      context: ./petstoreorderservice
+    ports:
+      - "8083:8083"
+    env_file:
+      - .env
+    environment:
+      - PETSTOREORDERSERVICE_SERVER_PORT=8083
+      # Cosmos DB connection - set in .env file:
+      # AZURE_COSMOS_ENDPOINT=https://your-cosmos.documents.azure.com:443/
+      # AZURE_COSMOS_KEY=your-key
+      # AZURE_COSMOS_DATABASE=petstoreorderservice_db
+
   petstoreapp:
     build:
       context: ./petstoreapp
@@ -12,26 +92,6 @@ services:
       # Enables External ID login/logout flow locally. Set additional configs in .env:
       - PETSTORE_SECURITY_ENABLED=false
 
-  petstorepetservice:
-    build:
-      context: ./petstorepetservice
-    ports:
-      - "8081:8081"
-    env_file:
-      - .env
-
-  petstoreproductservice:
-    build:
-      context: ./petstoreproductservice
-    ports:
-      - "8082:8082"
-    env_file:
-      - .env
-
-  petstoreorderservice:
-    build:
-      context: ./petstoreorderservice
-    ports:
-      - "8083:8083"
-    env_file:
-      - .env
+volumes:
+  postgres-pet-data:
+  postgres-product-data:

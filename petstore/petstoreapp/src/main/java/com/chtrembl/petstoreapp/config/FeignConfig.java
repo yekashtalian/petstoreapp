@@ -83,56 +83,58 @@ public class FeignConfig {
             String sessionId = extractHeaderValue(response, "X-Session-ID");
             String responseTraceId = extractHeaderValue(response, "X-Response-Trace-ID");
             String currentTraceId = MDC.get("traceId");
+            byte[] bodyBytes = extractResponseBody(response);
+            String responseBody = bodyBytes.length > 0 ? new String(bodyBytes, java.nio.charset.StandardCharsets.UTF_8) : "(empty)";
 
             if (response.status() == 404) {
-                log.info("Feign client resource not found on {} [RequestID: {}, SessionID: {}, TraceID: {}, ResponseTraceID: {}]: {} - {}",
+                log.info("Feign client resource not found on {} [RequestID: {}, SessionID: {}, TraceID: {}, ResponseTraceID: {}]: {} - {} | body: {}",
                         methodKey, requestId, sessionId, currentTraceId, responseTraceId,
-                        response.status(), response.reason());
+                        response.status(), response.reason(), responseBody);
             } else {
-                log.error("Feign client error on {} [RequestID: {}, SessionID: {}, TraceID: {}, ResponseTraceID: {}]: {} - {}",
+                log.error("Feign client error on {} [RequestID: {}, SessionID: {}, TraceID: {}, ResponseTraceID: {}]: {} - {} | body: {}",
                         methodKey, requestId, sessionId, currentTraceId, responseTraceId,
-                        response.status(), response.reason());
+                        response.status(), response.reason(), responseBody);
             }
 
             String errorMessage = String.format(
-                    "Service call failed for %s [RequestID: %s, SessionID: %s, TraceID: %s] with status %d",
-                    methodKey, requestId, sessionId, currentTraceId, response.status());
+                    "Service call failed for %s [RequestID: %s, SessionID: %s, TraceID: %s] with status %d - %s",
+                    methodKey, requestId, sessionId, currentTraceId, response.status(), responseBody);
 
             return switch (response.status()) {
                 case 404 -> new feign.FeignException.NotFound(
                         "Resource not found for " + methodKey,
                         response.request(),
-                        extractResponseBody(response),
+                        bodyBytes,
                         response.headers()
                 );
                 case 400 -> new feign.FeignException.BadRequest(
-                        "Bad request for " + methodKey,
+                        "Bad request for " + methodKey + ": " + responseBody,
                         response.request(),
-                        extractResponseBody(response),
+                        bodyBytes,
                         response.headers()
                 );
                 case 429 -> new feign.FeignException.TooManyRequests(
                         "Rate limit exceeded for " + methodKey,
                         response.request(),
-                        extractResponseBody(response),
+                        bodyBytes,
                         response.headers()
                 );
                 case 500 -> new feign.FeignException.InternalServerError(
                         "Internal server error for " + methodKey,
                         response.request(),
-                        extractResponseBody(response),
+                        bodyBytes,
                         response.headers()
                 );
                 case 503 -> new feign.FeignException.ServiceUnavailable(
                         "Service unavailable for " + methodKey,
                         response.request(),
-                        extractResponseBody(response),
+                        bodyBytes,
                         response.headers()
                 );
                 default -> new feign.FeignException.BadRequest(
                         errorMessage,
                         response.request(),
-                        extractResponseBody(response),
+                        bodyBytes,
                         response.headers()
                 );
             };
@@ -141,7 +143,7 @@ public class FeignConfig {
         private byte[] extractResponseBody(feign.Response response) {
             try {
                 if (response.body() != null) {
-                    return response.body().toString().getBytes();
+                    return feign.Util.toByteArray(response.body().asInputStream());
                 }
             } catch (Exception e) {
                 log.warn("Failed to extract response body: {}", e.getMessage());
