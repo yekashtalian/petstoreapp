@@ -1,18 +1,19 @@
 package com.chtrembl.petstore.order.service;
 
-import com.chtrembl.petstore.order.entity.OrderDocument;
-import com.chtrembl.petstore.order.entity.OrderProductItem;
 import com.chtrembl.petstore.order.exception.OrderNotFoundException;
 import com.chtrembl.petstore.order.model.Order;
 import com.chtrembl.petstore.order.model.Product;
-import com.chtrembl.petstore.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,58 +21,77 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OrderService {
 
-    private final OrderRepository orderRepository;
+    private static final String ORDERS = "orders";
+    private final CacheManager cacheManager;
     private final ProductService productService;
 
+    @Cacheable(ORDERS)
     public Order createOrder(String orderId) {
-        log.info("Creating new order with id: {}", orderId);
-        OrderDocument doc = OrderDocument.builder()
+        log.info("Creating new order with id: {} and caching it", orderId);
+        return Order.builder()
                 .id(orderId)
                 .products(new ArrayList<>())
-                .status(Order.Status.PLACED.toString())
+                .status(Order.Status.PLACED)
                 .complete(false)
                 .build();
-        orderRepository.save(doc);
-        return mapToDto(doc);
     }
 
     /**
-     * Retrieves an existing order by ID. Does NOT create a new order if not found.
+     * Retrieves an existing order from cache by ID.
+     * Does NOT create a new order if one doesn't exist.
      *
-     * @param orderId the order ID to retrieve
-     * @return the existing order
+     * @param orderId the order ID to look up
      * @throws OrderNotFoundException if order does not exist
      */
     public Order getOrderById(String orderId) {
-        log.info("Retrieving order from repository: {}", orderId);
+        log.info("Retrieving order from cache: {}", orderId);
 
         if (orderId == null || orderId.trim().isEmpty()) {
             throw new IllegalArgumentException("Order ID cannot be null or empty");
         }
 
-        return orderRepository.findById(orderId)
-                .map(this::mapToDto)
-                .orElseThrow(() -> {
-                    log.warn("Order not found: {}", orderId);
-                    return new OrderNotFoundException("Order with ID " + orderId + " not found");
-                });
+        Cache cache = cacheManager.getCache(ORDERS);
+        if (cache != null) {
+            Cache.ValueWrapper wrapper = cache.get(orderId);
+            if (wrapper != null) {
+                Order cachedOrder = (Order) wrapper.get();
+                if (cachedOrder != null) {
+                    log.info("Found existing order: {}", orderId);
+                    return cachedOrder;
+                }
+            }
+        }
+
+        log.warn("Order not found: {}", orderId);
+        throw new OrderNotFoundException("Order with ID " + orderId + " not found");
     }
 
     /**
      * Gets an existing order or creates a new one if it doesn't exist.
-     * Used internally for order updates.
+     * Used for update operations.
      */
     public Order getOrCreateOrder(String orderId) {
         log.info("Getting or creating order: {}", orderId);
-        return orderRepository.findById(orderId)
-                .map(doc -> {
+
+        Cache cache = cacheManager.getCache(ORDERS);
+        if (cache != null) {
+            Cache.ValueWrapper wrapper = cache.get(orderId);
+            if (wrapper != null) {
+                Order cachedOrder = (Order) wrapper.get();
+                if (cachedOrder != null) {
                     log.info("Found existing order for update: {}", orderId);
-                    return mapToDto(doc);
-                })
-                .orElseGet(() -> {
-                    log.info("Creating new order for update: {}", orderId);
-                    return createOrder(orderId);
-                });
+                    return cachedOrder;
+                }
+            }
+        }
+
+        log.info("Creating new order for update: {}", orderId);
+        Order newOrder = createOrder(orderId);
+        if (cache != null) {
+            cache.put(orderId, newOrder);
+        }
+
+        return newOrder;
     }
 
     public Order updateOrder(Order order) {
@@ -82,138 +102,114 @@ public class OrderService {
             validateProductsExist(order.getProducts(), availableProducts);
         }
 
-        Order currentOrder = getOrCreateOrder(order.getId());
+        Order cachedOrder = getOrCreateOrder(order.getId());
 
-        currentOrder.setEmail(order.getEmail());
+        cachedOrder.setEmail(order.getEmail());
 
         if (order.getStatus() != null) {
-            currentOrder.setStatus(order.getStatus());
+            cachedOrder.setStatus(order.getStatus());
         }
 
         Boolean isComplete = order.getComplete();
         if (isComplete != null && isComplete) {
             log.info("Completing order {} - clearing products", order.getId());
-            currentOrder.setProducts(new ArrayList<>());
-            currentOrder.setComplete(true);
+            cachedOrder.setProducts(new ArrayList<>());
+            cachedOrder.setComplete(true);
         } else {
-            currentOrder.setComplete(isComplete != null ? isComplete : false);
-            updateOrderProducts(currentOrder, order.getProducts());
+            cachedOrder.setComplete(isComplete != null ? isComplete : false);
+            updateOrderProducts(cachedOrder, order.getProducts());
         }
 
-        orderRepository.save(mapToDocument(currentOrder));
+        Cache cache = cacheManager.getCache(ORDERS);
+        if (cache != null) {
+            cache.put(order.getId(), cachedOrder);
+        }
 
-        return currentOrder;
+        return cachedOrder;
     }
 
     public void enrichOrderWithProductDetails(Order order, List<Product> availableProducts) {
-        if (order.getProducts() == null || order.getProducts().isEmpty()
-                || availableProducts == null || availableProducts.isEmpty()) {
+        if (order.getProducts() == null || availableProducts == null) {
+            log.warn("Cannot enrich order: order.products={}, availableProducts={}",
+                    order.getProducts(), availableProducts != null ? availableProducts.size() : "null");
             return;
         }
 
-        order.getProducts().forEach(orderProduct -> availableProducts.stream()
-                .filter(p -> p.getId().equals(orderProduct.getId()))
-                .findFirst()
-                .ifPresent(matched -> {
-                    orderProduct.setName(matched.getName());
-                    orderProduct.setPhotoURL(matched.getPhotoURL());
-                }));
+        log.info("Enriching order {} with {} available products",
+                order.getId(), availableProducts.size());
+
+        for (Product orderProduct : order.getProducts()) {
+            String originalName = orderProduct.getName();
+            String originalURL = orderProduct.getPhotoURL();
+
+            Optional<Product> foundProduct = availableProducts.stream()
+                    .filter(p -> p.getId().equals(orderProduct.getId()))
+                    .findFirst();
+
+            if (foundProduct.isPresent()) {
+                Product availableProduct = foundProduct.get();
+                orderProduct.setName(availableProduct.getName());
+                orderProduct.setPhotoURL(availableProduct.getPhotoURL());
+
+                log.info("Enriched product {}: '{}' -> '{}', URL: '{}' -> '{}'",
+                        orderProduct.getId(), originalName, availableProduct.getName(),
+                        originalURL, availableProduct.getPhotoURL());
+            } else {
+                log.warn("Product with id {} not found in available products during enrichment",
+                        orderProduct.getId());
+            }
+        }
     }
 
-    Order mapToDto(OrderDocument doc) {
-        List<Product> products = doc.getProducts() == null ? new ArrayList<>()
-                : doc.getProducts().stream()
-                        .map(this::mapItemToProduct)
-                        .collect(Collectors.toList());
-
-        return Order.builder()
-                .id(doc.getId())
-                .email(doc.getEmail())
-                .products(products)
-                .status(Order.Status.fromValue(doc.getStatus()))
-                .complete(doc.getComplete() != null ? doc.getComplete() : false)
-                .build();
-    }
-
-    OrderDocument mapToDocument(Order order) {
-        List<OrderProductItem> items = order.getProducts() == null ? new ArrayList<>()
-                : order.getProducts().stream()
-                        .map(this::mapProductToItem)
-                        .collect(Collectors.toList());
-
-        return OrderDocument.builder()
-                .id(order.getId())
-                .email(order.getEmail())
-                .products(items)
-                .status(order.getStatus() != null ? order.getStatus().toString() : null)
-                .complete(order.getComplete())
-                .build();
-    }
-
-    OrderProductItem mapProductToItem(Product p) {
-        return OrderProductItem.builder()
-                .id(p.getId())
-                .quantity(p.getQuantity() != null ? p.getQuantity() : 0)
-                .name(p.getName())
-                .photoURL(p.getPhotoURL())
-                .build();
-    }
-
-    Product mapItemToProduct(OrderProductItem item) {
-        return Product.builder()
-                .id(item.getId())
-                .quantity(item.getQuantity() != null ? item.getQuantity() : 0)
-                .name(item.getName())
-                .photoURL(item.getPhotoURL())
-                .build();
-    }
-
+    /**
+     * Validates that all products in the order exist in the available products list
+     */
     private void validateProductsExist(List<Product> orderProducts, List<Product> availableProducts) {
         if (orderProducts == null || orderProducts.isEmpty()) {
             return;
         }
 
-        List<Long> requestedProductIds = orderProducts.stream()
-                .map(Product::getId)
-                .filter(id -> id != null)
-                .collect(Collectors.toList());
+        if (availableProducts == null || availableProducts.isEmpty()) {
+            log.warn("No available products found - cannot validate order products");
+            return;
+        }
 
-        List<Long> availableProductIds = availableProducts.stream()
+        Set<Long> availableProductIds = availableProducts.stream()
                 .map(Product::getId)
-                .filter(id -> id != null)
-                .collect(Collectors.toList());
+                .collect(Collectors.toSet());
 
-        List<Long> missingProductIds = requestedProductIds.stream()
+        Set<Long> requestedProductIds = orderProducts.stream()
+                .map(Product::getId)
+                .collect(Collectors.toSet());
+
+        Set<Long> missingProductIds = requestedProductIds.stream()
                 .filter(id -> !availableProductIds.contains(id))
-                .collect(Collectors.toList());
+                .collect(Collectors.toSet());
 
         if (!missingProductIds.isEmpty()) {
-            String errorMessage = String.format("Products with IDs %s are not available or do not exist",
-                    missingProductIds);
-            log.warn("Product validation failed for order: {}", errorMessage);
-            throw new IllegalArgumentException(errorMessage);
+            log.warn("Products not found in catalog: {}", missingProductIds);
         }
 
         log.debug("Product validation passed for {} products", requestedProductIds.size());
     }
 
-    private void updateOrderProducts(Order currentOrder, List<Product> incomingProducts) {
+    private void updateOrderProducts(Order cachedOrder, List<Product> incomingProducts) {
         if (incomingProducts == null || incomingProducts.isEmpty()) {
             return;
         }
 
         if (incomingProducts.size() == 1) {
-            handleSingleProductUpdate(currentOrder, incomingProducts.getFirst());
+            handleSingleProductUpdate(cachedOrder, incomingProducts.getFirst());
         } else {
-            currentOrder.setProducts(new ArrayList<>(incomingProducts));
+            cachedOrder.setProducts(new ArrayList<>(incomingProducts));
         }
     }
 
-    private void handleSingleProductUpdate(Order currentOrder, Product incomingProduct) {
-        List<Product> existingProducts = currentOrder.getProducts();
+    private void handleSingleProductUpdate(Order cachedOrder, Product incomingProduct) {
+        List<Product> existingProducts = cachedOrder.getProducts();
         if (existingProducts == null) {
             existingProducts = new ArrayList<>();
-            currentOrder.setProducts(existingProducts);
+            cachedOrder.setProducts(existingProducts);
         }
 
         Integer quantity = incomingProduct.getQuantity();
@@ -233,15 +229,15 @@ public class OrderService {
             if (newQuantity <= 0) {
                 existingProducts.removeIf(p -> p.getId().equals(incomingProduct.getId()));
                 log.info("Removed product {} from order {} (quantity became {})",
-                        incomingProduct.getId(), currentOrder.getId(), newQuantity);
+                        incomingProduct.getId(), cachedOrder.getId(), newQuantity);
             } else if (newQuantity <= 10) {
                 existingProduct.setQuantity(newQuantity);
                 log.info("Updated product {} quantity to {} in order {}",
-                        incomingProduct.getId(), newQuantity, currentOrder.getId());
+                        incomingProduct.getId(), newQuantity, cachedOrder.getId());
             } else {
                 existingProduct.setQuantity(10);
                 log.warn("Quantity capped at maximum (10) for product {} in order {}",
-                        incomingProduct.getId(), currentOrder.getId());
+                        incomingProduct.getId(), cachedOrder.getId());
             }
         } else {
             if (quantity > 0) {
@@ -254,15 +250,15 @@ public class OrderService {
                         .build());
 
                 log.info("Added new product {} with quantity {} to order {}",
-                        incomingProduct.getId(), finalQuantity, currentOrder.getId());
+                        incomingProduct.getId(), finalQuantity, cachedOrder.getId());
 
                 if (quantity > 10) {
                     log.warn("Quantity reduced to maximum (10) for new product {} in order {}",
-                            incomingProduct.getId(), currentOrder.getId());
+                            incomingProduct.getId(), cachedOrder.getId());
                 }
             } else {
                 log.info("Ignoring request to add product {} with non-positive quantity {} to order {}",
-                        incomingProduct.getId(), quantity, currentOrder.getId());
+                        incomingProduct.getId(), quantity, cachedOrder.getId());
             }
         }
     }

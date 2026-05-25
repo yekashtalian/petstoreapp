@@ -70,8 +70,8 @@ public class FeignConfig {
     @Bean
     public feign.Request.Options feignOptions() {
         return new feign.Request.Options(
-                5000, TimeUnit.MILLISECONDS,  // connect timeout
-                5000, TimeUnit.MILLISECONDS,  // read timeout
+                5000, TimeUnit.MILLISECONDS,   // connect timeout
+                30000, TimeUnit.MILLISECONDS,  // read timeout (30s to handle cold-start lazy init)
                 true  // follow redirects
         );
     }
