@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -28,7 +27,6 @@ public class ProductService {
     @Value("${petstore.service.product.url:http://localhost:8082}")
     private String productServiceUrl;
 
-    @Cacheable("products")
     public List<Product> getAvailableProducts() {
         log.info("Retrieving products from: {}/petstoreproductservice/v2/product/findByStatus?status=available",
                 productServiceUrl);
